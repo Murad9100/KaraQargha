@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from karagargha.core.colors import strip_ansi
 
@@ -78,6 +78,31 @@ def generate_txt_report(
     lines.append("=" * 60)
 
     return "\n".join(lines)
+
+
+def generate_html_report(
+    target_type: str,
+    target_value: str,
+    module_data: Dict[str, Any],
+    text_sections: Optional[Dict[str, str]] = None,
+) -> str:
+    """Generate a simple HTML report."""
+    import html as _html
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    parts = [
+        "<!DOCTYPE html>", "<html><head><meta charset='utf-8'>",
+        f"<title>KaraQargha Report - {_html.escape(target_value)}</title>",
+        "<style>body{font-family:monospace;background:#111;color:#eee;padding:20px;} h1{color:#0ff;} section{margin:16px 0;padding:12px;border:1px solid #333;border-radius:8px;} pre{white-space:pre-wrap;}</style>",
+        "</head><body>",
+        f"<h1>KARAQARGHA OSINT REPORT</h1>",
+        f"<p>Target: {_html.escape(target_type)} / {_html.escape(target_value)}<br>Generated: {ts}</p>",
+    ]
+    if text_sections:
+        for title, content in text_sections.items():
+            parts.append(f"<section><h2>{_html.escape(title)}</h2><pre>{_html.escape(content)}</pre></section>")
+    parts.append(f"<section><h2>Raw JSON</h2><pre>{_html.escape(json.dumps(module_data, indent=2, ensure_ascii=False))}</pre></section>")
+    parts.append("</body></html>")
+    return "\n".join(parts)
 
 
 def save_report(

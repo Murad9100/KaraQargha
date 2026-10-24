@@ -19,7 +19,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from karagargha.core import colors
-from karagargha.core.report import generate_json_report, generate_txt_report, save_report
+from karagargha.core.report import generate_json_report, generate_txt_report, generate_html_report, save_report
 from karagargha.core.spinner import Spinner
 from karagargha.modules.breach import scan_breaches
 from karagargha.modules.email import scan_email
@@ -88,6 +88,11 @@ Examples:
         action="store_true",
         help="Force raw JSON output to stdout",
     )
+    parser.add_argument(
+        "--html",
+        action="store_true",
+        help="Generate an HTML report under the reports/ folder",
+    )
 
     return parser
 
@@ -109,9 +114,25 @@ def run_scans(args: argparse.Namespace) -> int:
     is_json = bool(args.json)
     spinner_enabled = not is_json
 
+    # Load .env if present
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+
     if not is_json:
         colors.init_colors()
         print(colors.get_banner())
+        # First-run / usage notice
+        notice_flag = os.path.join(os.path.expanduser("~"), ".karagargha_seen")
+        if not os.path.exists(notice_flag):
+            print(colors.warning("Notice: Use this tool only on your own data, your own assets, or with the owner's permission."))
+            try:
+                with open(notice_flag, "w") as f:
+                    f.write("seen")
+            except Exception:
+                pass
 
     # Verify that at least one scan option was requested
     has_target = any([args.email, args.username, args.phone, args.ip, args.all_target])
@@ -251,6 +272,17 @@ def run_scans(args: argparse.Namespace) -> int:
         save_msg = save_report(args.output, json_report, txt_report)
         if not is_json:
             print(save_msg)
+
+    # HTML report under reports/
+    if getattr(args, "html", False):
+        os.makedirs("reports", exist_ok=True)
+        import datetime as _dt
+        fname = f"reports/report_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        html_content = generate_html_report(primary_target_type, primary_target_val, structured_results, section_texts)
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        if not is_json:
+            print(colors.found(f"HTML report saved: {os.path.abspath(fname)}"))
 
     return 0
 

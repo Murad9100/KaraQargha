@@ -29,11 +29,14 @@ except ImportError:  # pragma: no cover
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 # Standard Prefixes
+# Status icons / prefixes
 PREFIX_FOUND = f"{Fore.GREEN}[+]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[+] "
 PREFIX_BREACH = f"{Fore.RED}[!]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[!] "
 PREFIX_INFO = f"{Fore.YELLOW}[i]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[i] "
 PREFIX_SCAN = f"{Fore.CYAN}[~]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[~] "
 PREFIX_ERROR = f"{Fore.RED}[x]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[x] "
+PREFIX_WARN = f"{Fore.YELLOW}[-]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[-] "
+PREFIX_SUCCESS = f"{Fore.GREEN}[+]{Style.RESET_ALL} " if COLOR_AVAILABLE else "[+] "
 
 
 def init_colors() -> None:
@@ -114,16 +117,38 @@ def header(title: str) -> str:
     return f"\n{bar}\n  {title}\n{bar}"
 
 
-def get_banner() -> str:
-    """Return the ASCII art banner with color styling."""
-    raw_banner = r"""
-  _  __                    ___                       _       
- | |/ /__ _  __ _ _ __    / _ \ _ __ __ _ _ __   __| | __ _ 
- | ' // _` |/ _` | '_ \  | | | | '__/ _` | '_ \ / _` |/ _` |
- | . \ (_| | (_| | | | | | |_| | | | (_| | | | | (_| | (_| |
- |_|\_\__,_|\__,_|_| |_|  \___/|_|  \__,_|_| |_|\__,_|\__,_|
-          Mini OSINT Framework v1.0 — by YOU
-"""
+def success(msg: str) -> str:
+    return f"{PREFIX_SUCCESS}{msg}"
+
+def warning(msg: str) -> str:
+    return f"{PREFIX_WARN}{msg}"
+
+def fail(msg: str) -> str:
+    return f"{PREFIX_ERROR}{msg}"
+
+def section(title: str) -> str:
+    return header(title)
+
+
+def get_banner() -> str:"
+    """Return the ASCII art banner (KARAQARGHA) with pyfiglet + crow art."""
+    try:
+        import pyfiglet
+        fig = pyfiglet.figlet_format("KARAQARGHA", font="slant")
+    except Exception:  # pragma: no cover
+        fig = "KARAQARGHA\n"
+
+    crow = r'''
+       ___
+      (   )
+     (  v  )    . . .
+      (   )   . . . .
+       " "   . . . . .
+    '''
+
+    subtitle = "OSINT Framework v2.0 - by Murad"
+    lines = [fig, crow, subtitle, ""]
+    raw = "\n".join(lines)
     if COLOR_AVAILABLE:
-        return f"{Fore.CYAN}{Style.BRIGHT}{raw_banner}{Style.RESET_ALL}"
-    return raw_banner
+        return f"{Fore.CYAN}{Style.BRIGHT}{fig}{Style.RESET_ALL}{Fore.YELLOW}{crow}{Style.RESET_ALL}\n{Fore.MAGENTA}{Style.BRIGHT}{subtitle}{Style.RESET_ALL}\n"
+    return raw
