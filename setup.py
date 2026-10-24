@@ -1,0 +1,57 @@
+"""Setup configuration for KaraQargha CLI OSINT tool."""
+
+import os
+from setuptools import find_packages, setup
+
+here = os.path.abspath(os.path.dirname(__file__))
+
+with open(os.path.join(here, "README.md"), encoding="utf-8") as f:
+    long_description = f.read()
+
+setup(
+    name="karagargha",
+    version="1.0.0",
+    description="KaraQargha — Command-Line Open Source Intelligence (OSINT) Framework",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    author="KaraQargha Team",
+    url="https://github.com/yourusername/karaqargha",
+    license="MIT",
+    packages=find_packages(include=["karagargha", "karagargha.*"]),
+    python_requires=">=3.9",
+    install_requires=[
+        "colorama>=0.4.6",
+        "requests>=2.28.0",
+        "phonenumbers>=8.13.0",
+        "httpx>=0.24.0",
+        "trio>=0.22.0",
+        "holehe>=1.61",
+        "sherlock-project>=0.14.0",
+    ],
+    extras_require={
+        "test": [
+            "pytest>=7.0.0",
+        ],
+    },
+    entry_points={
+        "console_scripts": [
+            "karagargha=karagargha.main:cli_entry",
+        ],
+    },
+    classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Information Technology",
+        "Intended Audience :: System Administrators",
+        "Topic :: Security",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Environment :: Console",
+        "Operating System :: OS Independent",
+    ],
+    keywords="osint intelligence security reconnaissance breach-check phone-lookup geolocation",
+)
