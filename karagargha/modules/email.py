@@ -1,113 +1,262 @@
-"""Holehe Email Registration Scan Module for KaraQargha.
-
-Performs async verification of email account registrations across
-120+ platforms using the holehe library.
-"""
+"""Email intelligence module for KaraQargha."""
 
 from __future__ import annotations
 
+import re
+import socket
 from typing import Any, Dict, List, Union
 
+try:
+    import dns.resolver
+    DNS_AVAILABLE = True
+except Exception:  # pragma: no cover
+    DNS_AVAILABLE = False
 
-def scan_email(
-    email: str,
-    raw: bool = False,
-    timeout: float = 10.0,
-    max_workers: int = 25,
-) -> Union[str, List[Dict[str, Any]]]:
-    """Check email registration across web services using holehe via asyncio.
+DISPOSABLE_DOMAINS = {
+    "mailinator.com", "10minutemail.com", "guerrillamail.com", "trashmail.com",
+    "tempmail.com", "yopmail.com", "sharklasers.com", "getnada.com",
+    "dispostable.com", "fakeinbox.com", "maildrop.cc", "throwawaymail.com",
+}
 
-    Args:
-        email: Email address to investigate.
-        raw: If True, returns list of dictionary records where exists is True.
-        timeout: HTTP request timeout in seconds.
-        max_workers: Maximum concurrent network requests.
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
-    Returns:
-        Formatted string listing services where account exists, or raw data list.
-    """
-    clean_email = email.strip()
 
+def _is_disposable(domain: str) -> bool:
+    domain = domain.lower()
+    if domain in DISPOSABLE_DOMAINS:
+        return True
+    return any(domain.endswith("." + d) for d in DISPOSABLE_DOMAINS)
+
+
+def _mx_records(domain: str) -> List[str]:
+    out = []
+    if not DNS_AVAILABLE:
+        return out
     try:
-        # Lazy imports inside function
-        import asyncio
-        import httpx
-        from holehe.core import import_submodules, get_functions
-        from karagargha.core import colors
-    except ImportError as imp_err:
-        fallback_msg = (
-            f"[!] Holehe library is not installed or missing dependencies ({imp_err}).\n"
-            "    Install it using: pip install holehe"
-        )
-        return [] if raw else fallback_msg
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 8
+        resolver.lifetime = 8
+        answers = resolver.resolve(domain, "MX")
+        for a in answers:
+            out.append(str(a.exchange).rstrip("."))
+    except Exception:
+        pass
+    return out
 
+
+def _xposedornot(email: str) -> Dict[str, Any]:
+    import requests
+    url = f"https://api.xposedornot.com/v1/check-email/{email}"
     try:
-        modules = import_submodules("holehe.modules")
-        websites = get_functions(modules)
+        r = requests.get(url, timeout=15, headers={"User-Agent": "karagargha/2.0"})
+        if r.status_code == 404:
+            return {"breaches": [], "message": "No breaches found (XposedOrNot)."}
+        if r.status_code != 200:
+            return {"error": f"HTTP {r.status_code}"}
+        j = r.json()
+        breaches = []
+        # XposedOrNot response format varies; extract list
+        data = j.get("breaches", j)
+        if isinstance(data, list):
+            for b in data:
+                breaches.append({
+                    "name": b.get("breach") or b.get("name") or b.get("site"),
+                    "date": b.get("breached_date") or b.get("date") or b.get("xposed_date"),
+                    "data_classes": b.get("xposed_data") or b.get("data_classes") or [],
+                })
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                breaches.append({"name": k, "date": v.get("breached_date") if isinstance(v, dict) else None, "data_classes": (v.get("xposed_data") if isinstance(v, dict) else [])})
+        return {"breaches": breaches, "raw": j}
     except Exception as exc:
-        return [] if raw else f"[!] Failed to load holehe modules: {exc}"
+        return {"error": str(exc)}
 
-    out: List[Dict[str, Any]] = []
 
-    async def _runner() -> None:
-        semaphore = asyncio.Semaphore(max_workers)
-        limits = httpx.Limits(max_connections=max_workers, max_keepalive_connections=10)
-
-        async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-            async def _check_service(fn) -> None:
-                async with semaphore:
-                    try:
-                        await fn(clean_email, client, out)
-                    except Exception:
-                        pass
-
-            tasks = [_check_service(fn) for fn in websites]
-            await asyncio.gather(*tasks, return_exceptions=True)
-
+def _hudson_rock(email: str) -> Dict[str, Any]:
+    import requests
+    url = "https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-email"
     try:
-        # Run under asyncio
+        r = requests.get(url, params={"email": email}, timeout=15, headers={"User-Agent": "karagargha/2.0"})
+        if r.status_code != 200:
+            return {"status": f"HTTP {r.status_code}"}
+        j = r.json()
+        # status only, no plaintext
+        info = {}
+        if isinstance(j, dict):
+            info["total_corporate_services"] = j.get("total_corporate_services")
+            info["total_user_services"] = j.get("total_user_services")
+            info["stealer"] = "infostealer exposure reported" if j.get("stealer_logs") or j.get("computers") else "none detected"
+        return {"status": info}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def scan_email(email: str, raw: bool = False, timeout: float = 10.0) -> Union[str, Dict[str, Any]]:
+    clean_email = email.strip().lower()
+    if not clean_email:
+        err = "[!] Please provide an email address."
+        return {"error": err} if raw else err
+
+    import os
+    syntax_ok = bool(EMAIL_RE.match(clean_email))
+    domain = clean_email.split("@")[-1] if "@" in clean_email else ""
+    disposable = _is_disposable(domain) if domain else False
+    mx = _mx_records(domain) if domain else []
+    xon = _xposedornot(clean_email)
+    hudson = _hudson_rock(clean_email)
+
+    # holehe registrations (optional, keep existing engine if available)
+    registered = []
+    holehe_available = True
+    try:
+        import holehe  # noqa: F401
+    except Exception:
+        holehe_available = False
+
+    data = {
+        "email": clean_email,
+        "syntax_valid": syntax_ok,
+        "domain": domain,
+        "disposable": disposable,
+        "mx_records": mx,
+        "xposedornot": xon,
+        "hudson_rock": hudson,
+        "holehe_available": holehe_available,
+        "holehe_registered": registered,
+    }
+
+    # Attempt holehe scan if installed
+    if holehe_available:
         try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+            import asyncio
+            import httpx
+            from holehe.core import import_submodules, get_functions
 
-        if loop and loop.is_running():
-            # If already inside an event loop (e.g. jupyter or test harness), run in thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                executor.submit(asyncio.run, _runner()).result()
-        else:
-            asyncio.run(_runner())
+            modules = import_submodules("holehe.modules")
+            websites = get_functions(modules)
+            out: List[Dict[str, Any]] = []
 
-        # Filter only exists: True services as specified in requirements
-        registered = [item for item in out if item.get("exists") is True]
+            async def _runner() -> None:
+                sem = asyncio.Semaphore(25)
+                limits = httpx.Limits(max_connections=25, max_keepalive_connections=10)
+                async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+                    async def _check(fn) -> None:
+                        async with sem:
+                            try:
+                                await fn(clean_email, client, out)
+                            except Exception:
+                                pass
+                    await asyncio.gather(*[_check(fn) for fn in websites], return_exceptions=True)
 
-        if raw:
-            return registered
+            try:
+                asyncio.run(_runner())
+            except RuntimeError:
+                pass
+            registered = [item for item in out if item.get("exists") is True]
+            data["holehe_registered"] = registered
+        except Exception:
+            pass
 
-        if not registered:
-            return colors.info(f"No registered accounts found across {len(websites)} checked services.")
+    if raw:
+        return data
 
-        lines = [colors.found(f"Account exists on {len(registered)} platform(s):")]
-        for item in sorted(registered, key=lambda x: str(x.get("name", "")).lower()):
-            name = item.get("name", "Unknown")
-            domain = item.get("domain", "")
-            domain_suffix = f" ({domain})" if domain else ""
-            lines.append(f"  • {name}{domain_suffix}")
+    from karagargha.core import colors
+    lines = [colors.found(f"Email intelligence for {clean_email}:")]
+    lines.append(f"  • Syntax Valid: {'Yes' if syntax_ok else 'No'}")
+    lines.append(f"  • Domain: {domain}")
+    lines.append(f"  • Disposable: {'YES (disposable)' if disposable else 'No'}")
+    lines.append(f"  • MX Records: {', '.join(mx) if mx else 'None found'}")
 
-            recovery_mail = item.get("emailrecovery")
-            phone = item.get("phoneNumber")
-            others = item.get("others")
+    # XposedOrNot breaches
+    breaches = (xon.get("breaches") if isinstance(xon, dict) else []) or []
+    if xon.get("error"):
+        lines.append(f"  • Breaches (XposedOrNot): error {xon['error']}")
+    elif breaches:
+        lines.append(f"  • Breaches (XposedOrNot): {len(breaches)}")
+        for b in breaches:
+            name = b.get("name", "Unknown")
+            date = b.get("date", "N/A")
+            classes = b.get("data_classes") or []
+            lines.append(f"      - {name} (Date: {date})")
+            if classes:
+                lines.append(f"        Exposed: {', '.join(classes)}")
+    else:
+        lines.append("  • Breaches (XposedOrNot): No breaches found.")
 
-            if recovery_mail:
-                lines.append(f"      Recovery Email: {recovery_mail}")
-            if phone:
-                lines.append(f"      Recovery Phone: {phone}")
-            if others:
-                lines.append(f"      Info: {others}")
+    # Hudson Rock
+    hr = hudson.get("status")
+    if isinstance(hr, dict):
+        lines.append(f"  • Infostealer exposure (Hudson Rock): {hr.get('stealer', 'n/a')}")
+    elif hudson.get("error"):
+        lines.append(f"  • Infostealer (Hudson Rock): error {hudson['error']}")
+    else:
+        lines.append(f"  • Infostealer (Hudson Rock): {hudson.get('status', 'unknown')}")
 
-        return "\n".join(lines)
+    # holehe
+    reg = data.get("holehe_registered") or []
+    if reg:
+        lines.append(colors.found(f"  Registered accounts ({len(reg)}):"))
+        for item in sorted(reg, key=lambda x: str(x.get("name", "")).lower()):
+            lines.append(f"      • {item.get('name')}")
+    else:
+        lines.append(colors.info("  No registered accounts found (holehe)."))
+    lines.append(colors.warning("  Note: false positives possible on registration checks."))
 
+    # HIBP optional note
+    import os
+    if not os.getenv("HIBP_API_KEY", "").strip():
+        lines.append(colors.info("  HIBP breach/paste scan disabled (HIBP_API_KEY not set)."))
+    return "\n".join(lines)
+
+
+def scan_email_headers(filepath: str, raw: bool = False) -> Union[str, Dict[str, Any]]:
+    """Parse raw email headers from a file."""
+    from email import policy
+    from email.parser import BytesParser
+    path = filepath.strip()
+    try:
+        with open(path, "rb") as f:
+            msg = BytesParser(policy=policy.default).parse(f)
     except Exception as exc:
-        err = f"[!] Email registration scan encountered an error: {exc}"
-        return [] if raw else err
+        err = f"[!] Failed to read headers file: {exc}"
+        return {"error": str(exc)} if raw else err
+
+    received = msg.get_all("Received", [])
+    originating_ip = None
+    ip_re = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+    for r in received:
+        m = ip_re.search(r)
+        if m:
+            originating_ip = m.group(1)
+            break
+
+    spf = msg.get("Received-SPF")
+    dkim = msg.get("DKIM-Signature")
+    auth_results = msg.get("Authentication-Results")
+
+    data = {
+        "received_chain": received,
+        "originating_ip": originating_ip,
+        "spf": spf,
+        "dkim": bool(dkim),
+        "authentication_results": auth_results,
+        "from": msg.get("From"),
+        "to": msg.get("To"),
+        "subject": msg.get("Subject"),
+        "date": msg.get("Date"),
+    }
+    if raw:
+        return data
+
+    from karagargha.core import colors
+    lines = [colors.found("Email header analysis:")]
+    lines.append(f"  • From: {msg.get('From')}")
+    lines.append(f"  • To: {msg.get('To')}")
+    lines.append(f"  • Subject: {msg.get('Subject')}")
+    lines.append(f"  • Date: {msg.get('Date')}")
+    lines.append(f"  • Originating IP: {originating_ip or 'N/A'}")
+    lines.append(f"  • SPF: {spf or 'N/A'}")
+    lines.append(f"  • DKIM present: {'Yes' if dkim else 'No'}")
+    lines.append(f"  • Authentication-Results: {auth_results or 'N/A'}")
+    lines.append(f"  • Received hops: {len(received)}")
+    return "\n".join(lines)

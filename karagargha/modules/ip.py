@@ -31,6 +31,7 @@ def scan_ip(
 
     try:
         # Lazy imports inside function
+        import os
         import requests
         from karagargha.core import colors
     except ImportError as imp_err:
@@ -53,6 +54,49 @@ def scan_ip(
             message = data.get("message", "Unknown error")
             err = colors.breach(f"IP Geolocation failed for '{clean_ip}': {message}")
             return {"error": message, "raw": data} if raw else err
+
+        # Reverse DNS
+        import socket as _socket
+        try:
+            _socket.setdefaulttimeout(timeout)
+            rdns = _socket.gethostbyaddr(clean_ip)[0]
+        except Exception:
+            rdns = None
+
+        # Shodan InternetDB (free, no key)
+        internetdb = {"ports": [], "vulns": [], "hostnames": [], "tags": []}
+        try:
+            idb_resp = requests.get(f"https://internetdb.shodan.io/{clean_ip}", timeout=timeout, headers=headers)
+            if idb_resp.status_code == 200:
+                idb_json = idb_resp.json()
+                internetdb = {
+                    "ports": idb_json.get("ports", []) or [],
+                    "vulns": idb_json.get("vulns", []) or [],
+                    "hostnames": idb_json.get("hostnames", []) or [],
+                    "tags": idb_json.get("tags", []) or [],
+                }
+        except Exception:
+            pass
+
+        # Optional AbuseIPDB
+        abuse = None
+        abuse_key = os.getenv("ABUSEIPDB_API_KEY", "").strip()
+        if abuse_key:
+            try:
+                ab_resp = requests.get(
+                    "https://api.abuseipdb.com/api/v2/check",
+                    headers={"Key": abuse_key, "Accept": "application/json"},
+                    params={"ipAddress": clean_ip, "maxAgeInDays": 90},
+                    timeout=timeout,
+                )
+                if ab_resp.status_code == 200:
+                    abuse = ab_resp.json().get("data")
+            except Exception:
+                abuse = None
+
+        data["reverse_dns"] = rdns
+        data["shodan_internetdb"] = internetdb
+        data["abuseipdb"] = abuse
 
         if raw:
             return data
@@ -90,7 +134,12 @@ def scan_ip(
             f"  • Proxy / VPN:    {proxy_str}",
             f"  • Hosting / Cloud: {hosting_str}",
             f"  • Mobile Network: {mobile_str}",
+            f"  • Reverse DNS:    {rdns or 'N/A'}",
+            f"  • Open Ports:     {', '.join(map(str, internetdb.get('ports', []))) or 'N/A'}",
+            f"  • Vulnerabilities: {', '.join(internetdb.get('vulns', [])) or 'None'}",
         ]
+        if abuse:
+            lines.append(f"  • AbuseIPDB Score: {abuse.get('abuseConfidenceScore')}")
         return "\n".join(lines)
 
     except Exception as exc:

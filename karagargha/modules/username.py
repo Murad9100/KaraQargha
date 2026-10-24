@@ -1,118 +1,99 @@
-"""Sherlock Username Reconnaissance Module for KaraQargha.
-
-Scans social media and online platforms for username availability
-and profile existence using the sherlock-project engine.
-"""
+"""Username reconnaissance module using the WhatsMyName dataset."""
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any, Dict, List, Union
 
+WMN_URL = "https://raw.githubusercontent.com/WebBreacher/WhatsMyName/main/wmn-data.json"
+CACHE_PATH = os.path.join(os.path.expanduser("~"), ".karagargha_wmn.json")
 
-def scan_username(
-    username: str,
-    raw: bool = False,
-    timeout: int = 10,
-) -> Union[str, List[Dict[str, str]]]:
-    """Search for username existence across social platforms using sherlock.
+DISCLAIMER = "False positives possible: some sites return 200 for unknown users."
 
-    Args:
-        username: Target handle/username to investigate.
-        raw: If True, returns list of dictionaries with site name and profile URL.
-        timeout: Network timeout in seconds per site check (default 10s).
 
-    Returns:
-        Formatted string listing discovered profiles, or list of dicts if raw=True.
-    """
-    clean_username = username.strip()
-    if not clean_username:
+def _load_dataset() -> List[Dict[str, Any]]:
+    # Try cache first
+    if os.path.exists(CACHE_PATH):
+        try:
+            with open(CACHE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                sites = data.get("sites", data) if isinstance(data, dict) else data
+                if isinstance(sites, list):
+                    return sites
+        except Exception:
+            pass
+    import requests
+    try:
+        r = requests.get(WMN_URL, timeout=20, headers={"User-Agent": "karagargha/2.0"})
+        if r.status_code == 200:
+            data = r.json()
+            sites = data.get("sites", data) if isinstance(data, dict) else data
+            if isinstance(sites, list):
+                try:
+                    with open(CACHE_PATH, "w", encoding="utf-8") as f:
+                        json.dump({"sites": sites}, f)
+                except Exception:
+                    pass
+                return sites
+    except Exception:
+        pass
+    return []
+
+
+def scan_username(username: str, raw: bool = False, timeout: float = 10.0) -> Union[str, List[Dict[str, str]]]:
+    clean = username.strip()
+    if not clean:
         return [] if raw else "[!] Please provide a valid username."
 
-    # Lazy imports inside function
-    import sys
-    from karagargha.core import colors
+    sites = _load_dataset()
+    found: List[Dict[str, str]] = []
 
-    # Gracefully shim pandas if missing in current environment (e.g. Python 3.15 builds)
-    if "pandas" not in sys.modules:
-        try:
-            import pandas  # noqa: F401
-        except ImportError:
-            import unittest.mock
-            sys.modules["pandas"] = unittest.mock.MagicMock()
+    if not sites:
+        msg = "[!] WhatsMyName dataset unavailable; username scan skipped."
+        return [] if raw else msg
+
+    # normalize site entries
+    targets = []
+    for s in sites:
+        if not isinstance(s, dict):
+            continue
+        url_template = s.get("uri_check") or s.get("url") or s.get("uri")
+        if not url_template or "{}" not in str(url_template):
+            continue
+        targets.append((s.get("name", "Unknown"), str(url_template).format(clean)))
+
+    # Concurrent checks
+    import httpx
+    import asyncio
+
+    async def _run() -> None:
+        sem = asyncio.Semaphore(50)
+        limits = httpx.Limits(max_connections=50, max_keepalive_connections=20)
+        async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False) as client:
+            async def _check(name, url):
+                async with sem:
+                    try:
+                        resp = await client.get(url, headers={"User-Agent": "karagargha/2.0"})
+                        if resp.status_code == 200:
+                            found.append({"site": name, "url": url})
+                    except Exception:
+                        pass
+            await asyncio.gather(*[_check(n, u) for n, u in targets], return_exceptions=True)
 
     try:
-        import sherlock_project.sherlock as sherlock_engine
-        from sherlock_project.notify import QueryNotify
-        from sherlock_project.result import QueryStatus
-        sherlock_available = True
-    except ImportError:
-        sherlock_available = False
-
-    found_profiles: List[Dict[str, str]] = []
-
-    if sherlock_available:
-        try:
-            sites_obj = sherlock_engine.SitesInformation()
-            # Glue site names to information dictionary for sherlock engine
-            site_data = {site.name: site.information for site in sites_obj}
-
-            # Run sherlock analysis with 10s timeout
-            results = sherlock_engine.sherlock(
-                username=clean_username,
-                site_data=site_data,
-                query_notify=QueryNotify(),
-                dump_response=False,
-                proxy=None,
-                timeout=timeout,
-            )
-
-            for site_name, result_info in results.items():
-                if result_info.get("status") == QueryStatus.CLAIMED:
-                    url = str(result_info.get("url_user", ""))
-                    found_profiles.append({
-                        "site": site_name,
-                        "url": url,
-                    })
-
-        except Exception as exc:
-            err = colors.breach(f"Sherlock scan encountered an unexpected error: {exc}")
-            return [] if raw else err
-
-    else:
-        # Graceful fallback: notify and check high-priority top social platforms
-        import requests
-
-        fallback_sites = {
-            "GitHub": ("https://github.com/{}", 200),
-            "GitLab": ("https://gitlab.com/{}", 200),
-            "Reddit": ("https://www.reddit.com/user/{}/about.json", 200),
-            "Pinterest": ("https://www.pinterest.com/{}/", 200),
-            "Medium": ("https://medium.com/@{}", 200),
-            "Steam": ("https://steamcommunity.com/id/{}", 200),
-            "Telegram": ("https://t.me/{}", 200),
-        }
-
-        headers = {"User-Agent": "karagargha-cli/1.0"}
-        for site, (url_pattern, expected_code) in fallback_sites.items():
-            target_url = url_pattern.format(clean_username)
-            try:
-                resp = requests.get(target_url, headers=headers, timeout=timeout, allow_redirects=False)
-                if resp.status_code == expected_code:
-                    found_profiles.append({
-                        "site": site,
-                        "url": target_url if ".json" not in target_url else f"https://www.reddit.com/user/{clean_username}",
-                    })
-            except Exception:
-                continue
+        asyncio.run(_run())
+    except Exception:
+        pass
 
     if raw:
-        return found_profiles
+        return found
 
-    if not found_profiles:
-        return colors.info(f"No public profiles found for username '{clean_username}'.")
-
-    lines = [colors.found(f"Found {len(found_profiles)} profile(s) for '{clean_username}':")]
-    for item in sorted(found_profiles, key=lambda x: x["site"].lower()):
+    from karagargha.core import colors
+    if not found:
+        return colors.info(f"No public profiles found for username '{clean}'.")
+    lines = [colors.found(f"Found {len(found)} profile(s) for '{clean}':")]
+    for item in sorted(found, key=lambda x: x["site"].lower()):
         lines.append(f"  • {item['site']}: {item['url']}")
-
+    lines.append(colors.warning(DISCLAIMER))
     return "\n".join(lines)

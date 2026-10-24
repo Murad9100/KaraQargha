@@ -22,11 +22,15 @@ from karagargha.core import colors
 from karagargha.core.report import generate_json_report, generate_txt_report, generate_html_report, save_report
 from karagargha.core.spinner import Spinner
 from karagargha.modules.breach import scan_breaches
-from karagargha.modules.email import scan_email
+from karagargha.modules.email import scan_email, scan_email_headers
 from karagargha.modules.ip import scan_ip
 from karagargha.modules.phone import scan_phone
 from karagargha.modules.social import scan_social
 from karagargha.modules.username import scan_username
+from karagargha.modules.domain import scan_domain
+from karagargha.modules.crypto import scan_crypto
+from karagargha.modules.image import scan_image
+from karagargha.modules.sanctions import scan_sanctions
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,6 +87,11 @@ Examples:
         metavar="FILE",
         help="Save report to file (.txt or .json auto-detected by extension)",
     )
+    parser.add_argument("-d", "--domain", metavar="DOMAIN", help="Domain & DNS intelligence")
+    parser.add_argument("--headers", metavar="FILE", help="Analyze raw email headers from file")
+    parser.add_argument("-c", "--crypto", metavar="ADDRESS", help="Bitcoin address summary")
+    parser.add_argument("--image", metavar="FILE", help="Image EXIF metadata")
+    parser.add_argument("-s", "--sanctions", metavar="NAME", help="Screen a name/entity against OFAC SDN")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -135,7 +144,7 @@ def run_scans(args: argparse.Namespace) -> int:
                 pass
 
     # Verify that at least one scan option was requested
-    has_target = any([args.email, args.username, args.phone, args.ip, args.all_target])
+    has_target = any([args.email, args.username, args.phone, args.ip, args.all_target, args.domain, args.headers, args.crypto, args.image, args.sanctions])
     if not has_target:
         if not is_json:
             print(colors.info("No scan target specified. Use -h or --help for instructions."))
@@ -214,6 +223,58 @@ def run_scans(args: argparse.Namespace) -> int:
             ip_raw = scan_ip(target_ip, raw=True)
         section_texts["IP Geolocation"] = ip_text
         structured_results["ip"] = ip_raw
+
+    # DOMAIN SCAN
+    if args.domain:
+        target = args.domain.strip()
+        if primary_target_type == "unknown":
+            primary_target_type = "domain"
+            primary_target_val = target
+        with Spinner(f"[~] Analysing domain {target} ...", enabled=spinner_enabled):
+            d_text = str(scan_domain(target, raw=False))
+            d_raw = scan_domain(target, raw=True)
+        section_texts["Domain Intelligence"] = d_text
+        structured_results["domain"] = d_raw
+
+    # EMAIL HEADERS
+    if args.headers:
+        with Spinner(f"[~] Parsing email headers from {args.headers} ...", enabled=spinner_enabled):
+            h_text = str(scan_email_headers(args.headers, raw=False))
+            h_raw = scan_email_headers(args.headers, raw=True)
+        section_texts["Email Header Analysis"] = h_text
+        structured_results["email_headers"] = h_raw
+
+    # CRYPTO
+    if args.crypto:
+        target = args.crypto.strip()
+        if primary_target_type == "unknown":
+            primary_target_type = "crypto"
+            primary_target_val = target
+        with Spinner(f"[~] Querying Bitcoin address {target} ...", enabled=spinner_enabled):
+            c_text = str(scan_crypto(target, raw=False))
+            c_raw = scan_crypto(target, raw=True)
+        section_texts["Crypto Intelligence"] = c_text
+        structured_results["crypto"] = c_raw
+
+    # IMAGE
+    if args.image:
+        with Spinner(f"[~] Extracting EXIF from {args.image} ...", enabled=spinner_enabled):
+            im_text = str(scan_image(args.image, raw=False))
+            im_raw = scan_image(args.image, raw=True)
+        section_texts["Image Metadata"] = im_text
+        structured_results["image"] = im_raw
+
+    # SANCTIONS
+    if args.sanctions:
+        target = args.sanctions.strip()
+        if primary_target_type == "unknown":
+            primary_target_type = "sanctions"
+            primary_target_val = target
+        with Spinner(f"[~] Screening '{target}' against OFAC SDN ...", enabled=spinner_enabled):
+            sa_text = str(scan_sanctions(target, raw=False))
+            sa_raw = scan_sanctions(target, raw=True)
+        section_texts["Sanctions Screening"] = sa_text
+        structured_results["sanctions"] = sa_raw
 
     # 5. ALL SCAN (-a / --all TARGET)
     if args.all_target:

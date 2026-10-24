@@ -130,7 +130,7 @@ def section(title: str) -> str:
     return header(title)
 
 
-def get_banner() -> str:"
+def get_banner() -> str:
     """Return the ASCII art banner (KARAQARGHA) with pyfiglet + crow art."""
     try:
         import pyfiglet
