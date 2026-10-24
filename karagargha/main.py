@@ -348,8 +348,73 @@ def run_scans(args: argparse.Namespace) -> int:
     return 0
 
 
+def interactive() -> int:
+    """Interactive menu shown when no CLI arguments are supplied."""
+    colors.init_colors()
+    print(colors.get_banner())
+    while True:
+        print(colors.header("Interactive Menu"))
+        print("  1. Email scan")
+        print("  2. Username scan")
+        print("  3. Phone lookup")
+        print("  4. IP lookup")
+        print("  5. Domain intelligence")
+        print("  6. Email header analysis")
+        print("  7. Crypto (BTC) summary")
+        print("  8. Image EXIF metadata")
+        print("  9. Sanctions screening")
+        print(" 10. Comprehensive scan (-a)")
+        print("  0. Exit")
+        try:
+            choice = input(colors.info("Select option: ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if choice == "0":
+            return 0
+        if choice not in {str(i) for i in range(1, 11)}:
+            print(colors.warning("Invalid choice."))
+            continue
+
+        args = argparse.Namespace(
+            email=None, username=None, phone=None, ip=None, all_target=None,
+            domain=None, headers=None, crypto=None, image=None, sanctions=None,
+            output=None, json=False, html=False,
+        )
+        if choice == "1":
+            args.email = input("Email: ").strip()
+        elif choice == "2":
+            args.username = input("Username: ").strip()
+        elif choice == "3":
+            args.phone = input("Phone: ").strip()
+        elif choice == "4":
+            args.ip = input("IP: ").strip()
+        elif choice == "5":
+            args.domain = input("Domain: ").strip()
+        elif choice == "6":
+            args.headers = input("Headers file: ").strip()
+        elif choice == "7":
+            args.crypto = input("BTC address: ").strip()
+        elif choice == "8":
+            args.image = input("Image file: ").strip()
+        elif choice == "9":
+            args.sanctions = input("Name/Entity: ").strip()
+        elif choice == "10":
+            args.all_target = input("Target: ").strip()
+
+        try:
+            run_scans(args)
+        except Exception as exc:
+            print(colors.fail(f"Error: {exc}"))
+        print()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Main CLI entry point."""
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        return interactive()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
