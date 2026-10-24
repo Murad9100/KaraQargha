@@ -201,6 +201,13 @@ Use only on your own data or with explicit written permission. The authors assum
 
 ---
 
+## 📝 Notes & Limitations
+
+- Domain/username/sanctions lookups use public services and may take longer depending on network conditions.
+- Public registration checks can produce false positives.
+- No passwords, hashes, or full leaked records are displayed.
+- IP geolocation API (`ip-api.com`) has request limits for heavy usage.
+
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE).
