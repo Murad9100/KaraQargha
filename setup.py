@@ -26,9 +26,11 @@ setup(
         "httpx>=0.24.0",
         "trio>=0.22.0",
         "holehe>=1.61",
-        "sherlock-project>=0.14.0",
     ],
     extras_require={
+        "sherlock": [
+            "sherlock-project>=0.14.0",
+        ],
         "test": [
             "pytest>=7.0.0",
         ],

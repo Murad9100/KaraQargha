@@ -65,13 +65,13 @@ git clone https://github.com/Murad9100/KaraQargha.git
 cd KaraQargha
 ```
 
-### 2. Set Up a Virtual Environment (Recommended)
+### 2. Set Up a Virtual Environment (Optional)
 ```bash
-# Windows (Command Prompt / PowerShell)
-python -m venv venv
+# Windows (CMD / PowerShell):
+py -m venv venv
 venv\Scripts\activate
 
-# Linux / macOS
+# Linux / macOS:
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -81,7 +81,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Install CLI Globally (Optional)
+### 4. Install KaraQargha CLI
 ```bash
 pip install -e .
 ```
