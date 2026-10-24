@@ -215,6 +215,25 @@ pytest -v tests/
 
 ---
 
+## 🧩 New Modules (v2.0)
+
+- Domain: `karagargha -d example.com`
+- Email headers: `karagargha --headers raw_headers.txt`
+- Crypto (BTC): `karagargha -c 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa`
+- Image EXIF: `karagargha --image photo.jpg`
+- Sanctions: `karagargha -s "Some Name"`
+
+Reports are written under `reports/` when using `--html`; use `-o` for custom paths.
+
+## 🧱 Adding a New Module
+
+1. Create `karagargha/modules/mymodule.py`.
+2. Subclass `BaseModule` from `karagargha.modules.base`.
+3. Set `name`, `input_types`, `requires_key`.
+4. Implement async `_run(self, target)` returning `(data, text)`.
+5. Implement a sync `scan_*` wrapper if needed for the CLI.
+6. The CLI auto-discovers `BaseModule` subclasses.
+
 ## ⚖️ LEGAL DISCLAIMER
 
 > [!WARNING]
