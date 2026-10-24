@@ -61,8 +61,8 @@
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/karaqargha.git
-cd karaqargha
+git clone https://github.com/Murad9100/KaraQargha.git
+cd KaraQargha
 ```
 
 ### 2. Set Up a Virtual Environment (Recommended)
