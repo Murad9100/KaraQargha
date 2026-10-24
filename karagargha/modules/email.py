@@ -34,8 +34,9 @@ def _mx_records(domain: str) -> List[str]:
         return out
     try:
         resolver = dns.resolver.Resolver()
-        resolver.timeout = 8
-        resolver.lifetime = 8
+        resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
+        resolver.timeout = 5
+        resolver.lifetime = 10
         answers = resolver.resolve(domain, "MX")
         for a in answers:
             out.append(str(a.exchange).rstrip("."))
@@ -55,18 +56,20 @@ def _xposedornot(email: str) -> Dict[str, Any]:
             return {"error": f"HTTP {r.status_code}"}
         j = r.json()
         breaches = []
-        # XposedOrNot response format varies; extract list
-        data = j.get("breaches", j)
+        data = j.get("breaches", [])
         if isinstance(data, list):
-            for b in data:
-                breaches.append({
-                    "name": b.get("breach") or b.get("name") or b.get("site"),
-                    "date": b.get("breached_date") or b.get("date") or b.get("xposed_date"),
-                    "data_classes": b.get("xposed_data") or b.get("data_classes") or [],
-                })
-        elif isinstance(data, dict):
-            for k, v in data.items():
-                breaches.append({"name": k, "date": v.get("breached_date") if isinstance(v, dict) else None, "data_classes": (v.get("xposed_data") if isinstance(v, dict) else [])})
+            for item in data:
+                if isinstance(item, list):
+                    for name in item:
+                        breaches.append({"name": str(name), "date": None, "data_classes": []})
+                elif isinstance(item, str):
+                    breaches.append({"name": item, "date": None, "data_classes": []})
+                elif isinstance(item, dict):
+                    breaches.append({
+                        "name": item.get("breach") or item.get("name") or item.get("site"),
+                        "date": item.get("breached_date") or item.get("date") or item.get("xposed_date"),
+                        "data_classes": item.get("xposed_data") or item.get("data_classes") or [],
+                    })
         return {"breaches": breaches, "raw": j}
     except Exception as exc:
         return {"error": str(exc)}
