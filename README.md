@@ -97,6 +97,13 @@ Supported:
 
 ## 💻 Usage & Examples
 
+Run without arguments to open the interactive menu:
+
+```bash
+karagargha
+```
+
+
 ### Email
 ```bash
 karagargha -e user@example.com
